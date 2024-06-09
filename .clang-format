@@ -1,0 +1,8 @@
+---
+BasedOnStyle: LLVM
+IndentWidth: 2
+ContinuationIndentWidth: 2
+ConstructorInitializerIndentWidth: 2
+BracedInitializerIndentWidth: 2
+AllowShortFunctionsOnASingleLine: Inline
+ColumnLimit: 120

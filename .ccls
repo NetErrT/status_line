@@ -1,0 +1,4 @@
+%c -std=c11 -Wall -Wextra -pedantic
+%cpp -Wall
+-Iinclude
+-D_XOPEN_SOURCE=700
