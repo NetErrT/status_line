@@ -1,5 +1,5 @@
 ---
-BasedOnStyle: LLVM
+BasedOnStyle: Google
 IndentWidth: 2
 ContinuationIndentWidth: 2
 ConstructorInitializerIndentWidth: 2
