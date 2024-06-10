@@ -16,7 +16,7 @@ jobs:
       uses: actions/checkout@main
       with:
         submodules: recursive
-    - name: testing library
-      run: "sudo apt-get install libcriterion-dev"
+    - name: install dependencies
+      run: "sudo apt install libcriterion-dev libxcb-xkb-dev libxcb-util-dev libasound2-dev"
     - name: test
       run: "make check"
