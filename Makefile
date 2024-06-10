@@ -42,7 +42,7 @@ debug:: $(EXECUTABLE)
 check:: $(SUBMODULES)
 check:: LDLIBS += -lcriterion
 check:: $(TEST_BINS)
-	$(foreach bin,$(TEST_BINS),$(shell ./$(bin)))
+	$(foreach bin,$^,$(shell ./$(bin)))
 
 $(OUT_DIR)/%.test: $(OUT_DIR)/%.o $(patsubst $(OUT_DIR)/tests/%.test,$(OUT_DIR)/src/%.o,$@)
 	@mkdir -p $(@D)

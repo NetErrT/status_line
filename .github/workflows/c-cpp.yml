@@ -13,4 +13,5 @@ jobs:
 
     steps:
     - name: check
+      uses: actions/checkout@main
       run: "make check"
