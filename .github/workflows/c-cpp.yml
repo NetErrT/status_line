@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: check
+    - name: checkout repo
       uses: actions/checkout@main
+    - name: test
       run: "make check"
