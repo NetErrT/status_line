@@ -12,15 +12,16 @@
 #include "module.h"
 #include "toml.h"
 
-typedef struct {
+typedef struct private {
   long min;
   long max;
   long volume;
   int switch_state;
-} channel_info_t;
+}
+private_t;
 
-static bool get_channel_info(snd_mixer_selem_id_t const *id, snd_mixer_selem_channel_id_t const channel_id,
-                             snd_mixer_t *mixer, channel_info_t *info) {
+static bool private_get(private_t *private, snd_mixer_selem_id_t const *id,
+                        snd_mixer_selem_channel_id_t const channel_id, snd_mixer_t *mixer) {
   snd_mixer_elem_t *elem = snd_mixer_find_selem(mixer, id);
 
   if (elem == NULL) {
@@ -28,15 +29,15 @@ static bool get_channel_info(snd_mixer_selem_id_t const *id, snd_mixer_selem_cha
   }
 
   if (snd_mixer_selem_has_playback_channel(elem, channel_id)) {
-    if (snd_mixer_selem_get_playback_volume(elem, channel_id, &info->volume) < 0 ||
-        snd_mixer_selem_get_playback_switch(elem, channel_id, &info->switch_state) < 0 ||
-        snd_mixer_selem_get_playback_volume_range(elem, &info->min, &info->max) < 0) {
+    if (snd_mixer_selem_get_playback_volume(elem, channel_id, &private->volume) < 0 ||
+        snd_mixer_selem_get_playback_switch(elem, channel_id, &private->switch_state) < 0 ||
+        snd_mixer_selem_get_playback_volume_range(elem, &private->min, &private->max) < 0) {
       return false;
     }
   } else if (snd_mixer_selem_has_capture_channel(elem, channel_id)) {
-    if (snd_mixer_selem_get_capture_volume(elem, channel_id, &info->volume) < 0 ||
-        snd_mixer_selem_get_capture_switch(elem, channel_id, &info->switch_state) < 0 ||
-        snd_mixer_selem_get_capture_volume_range(elem, &info->min, &info->max) < 0) {
+    if (snd_mixer_selem_get_capture_volume(elem, channel_id, &private->volume) < 0 ||
+        snd_mixer_selem_get_capture_switch(elem, channel_id, &private->switch_state) < 0 ||
+        snd_mixer_selem_get_capture_volume_range(elem, &private->min, &private->max) < 0) {
       return false;
     }
   }
@@ -44,23 +45,25 @@ static bool get_channel_info(snd_mixer_selem_id_t const *id, snd_mixer_selem_cha
   return true;
 }
 
-static uint8_t convert_percentage(long value, long min, long max) {
+static u8 convert_percentage(long value, long min, long max) {
   long range = max - min;
 
   if (range == 0) {
     return min;
   }
 
-  return (uint8_t)rintf((float)value / (float)range * 100);
+  return (u8)rintf((float)value / (float)range * 100);
 }
 
-static inline bool update(module_t *module, module_sound_config_t const *config, channel_info_t const *info) {
-  char volume[4];
-  snprintf(volume, countof(volume), "%d", convert_percentage(info->volume, info->min, info->max));
+static inline bool update(module_t *module, module_sound_config_t const *config, private_t const *private) {
+  u8 volume = convert_percentage(private->volume, private->min, private->max);
+  usize volume_string_size = strfsize("%d", volume);
+  char *volume_string = alloca(volume_string_size + 1);
+  snprintf(volume_string, volume_string_size + 1, "%d", volume);
 
   char const *formatters[][2] = {
-    {"%volume%", volume},
-    {"%state%", info->switch_state ? "m" : "M"},
+    {"%volume%", volume_string},
+    {"%state%", private->switch_state ? "m" : "M"},
     {0},
   };
 
@@ -115,13 +118,11 @@ int module_sound_run(module_t *module) {
 
   if (config == NULL) {
     log_error("Failed to get config");
-
     goto done;
   }
 
   if (config == NULL) {
     log_error("incorrect configuration of the audio module");
-
     goto free_config;
   }
 
@@ -129,25 +130,21 @@ int module_sound_run(module_t *module) {
 
   if (snd_mixer_open(&mixer, 0) < 0) {
     log_error("Failed to open mixer");
-
     goto free_config;
   }
 
   if (snd_mixer_attach(mixer, config->device) < 0) {
-    fprintf(stderr,"Failed to attach mixer");
-
+    log_error("Failed to attach mixer");
     goto free_mixer;
   }
 
   if (snd_mixer_selem_register(mixer, NULL, NULL) < 0) {
     log_error("Failed to register selem");
-
     goto free_mixer;
   }
 
   if (snd_mixer_load(mixer) < 0) {
     log_error("Failed to load mixer");
-
     goto free_mixer;
   }
 
@@ -162,7 +159,6 @@ int module_sound_run(module_t *module) {
 
   if (pfds == NULL) {
     log_error("Failed to allocate poll descriptors");
-
     goto free_mixer;
   }
 
@@ -171,22 +167,19 @@ int module_sound_run(module_t *module) {
 
   if (snd_mixer_poll_descriptors(mixer, &pfds[1], nfds - 1) < 0) {
     log_error("cannot get poll descriptors");
-
     goto free_pfds;
   }
 
-  channel_info_t info = {0};
+  private_t private = {0};
 
   while (true) {
-    if (!get_channel_info(id, SND_MIXER_SCHN_MONO, mixer, &info)) {
+    if (!private_get(&private, id, SND_MIXER_SCHN_MONO, mixer)) {
       log_error("Failed to get channel info");
-
       goto free_pfds;
     }
 
-    if (!update(module, config, &info)) {
+    if (!update(module, config, &private)) {
       log_error("Failed to update status line");
-
       goto free_pfds;
     }
 
@@ -198,7 +191,6 @@ int module_sound_run(module_t *module) {
       }
 
       log_error("Failed to poll()");
-
       goto free_pfds;
     }
 
@@ -210,7 +202,6 @@ int module_sound_run(module_t *module) {
 
     if (snd_mixer_poll_descriptors_revents(mixer, &pfds[1], nfds - 1, &revents) < 0) {
       log_error("cannot get poll descriptors events");
-
       goto free_pfds;
     }
 
@@ -218,7 +209,6 @@ int module_sound_run(module_t *module) {
       snd_mixer_handle_events(mixer);
     } else if (revents & (POLLERR | POLLNVAL)) {
       log_error("alsa I/O error");
-
       goto free_pfds;
     }
   }

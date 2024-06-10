@@ -25,10 +25,12 @@ all: release
 
 .PHONY: release
 release:: CFLAGS := -O2 -DNDEBUG $(CFLAGS)
+release:: $(SUBMODULES)
 release:: $(EXECUTABLE)
 
 .PHONY: debug
 debug:: CFLAGS := -O0 -g $(CFLAGS)
+debug:: $(SUBMODULES)
 debug:: $(EXECUTABLE)
 
 .PHONY: clean
@@ -37,10 +39,12 @@ clean:
 	rm -f $(OBJS) $(DEPS) $(EXECUTABLE)
 
 .PHONY: tomlc99
-tomlc99:
+tomlc99: tomlc99/libtoml.so.1.0
+
+tomlc99/libtoml.so.1.0:
 	$(MAKE) -C tomlc99
 
-$(EXECUTABLE): $(SUBMODULES) $(OBJS)
+$(EXECUTABLE): $(OBJS)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(LDLIBS) $(LDFLAGS) $(OBJS) -o $@
 

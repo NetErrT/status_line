@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 
 #include "config.h"
@@ -16,12 +15,7 @@ int main(void) {
 
   status_line_t status_line = {0};
 
-  size_t modules_count = 0;
-
-  for (size_t modules_index = 0; config.modules[modules_index].key != NULL; modules_index++, modules_count++) {
-  }
-
-  if (!status_line_construct(&status_line, modules_count)) {
+  if (!status_line_construct(&status_line, config.modules_count)) {
     log_error("Failed to initialize status line");
     goto free_config;
   }

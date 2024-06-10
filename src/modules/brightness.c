@@ -21,61 +21,52 @@
 #define BACKLIGHT_PATH "/sys/class/backlight"
 #define MAX_BRIGHTNESS_LENGTH 5
 
-typedef struct {
+typedef struct private {
   char *brightness_file_path;
   char *max_brightness_file_path;
-  int8_t brightness;
-} info_t;
+  u8 brightness;
+}
+private_t;
 
-static void info_free(info_t *info) {
-  free(info->brightness_file_path);
-  free(info->max_brightness_file_path);
+static void private_destruct(private_t *private) {
+  free(private->brightness_file_path);
+  free(private->max_brightness_file_path);
 }
 
-static bool info_init(info_t *info, char const *card) {
-  if (info == NULL) {
-    return NULL;
-  }
+static bool private_construct(private_t *private, char const *card) {
+  static char *file_format = "%s/%s/%s";
+  static char *files[] = {"brightness", "max_brightness"};
 
-  static char const *const files[] = {"brightness", "max_brightness"};
+  char *paths[countof(files)] = {0};
 
-  size_t const card_length = strlen(card);
+  for (usize path_index = 0; path_index < countof(paths); path_index += 1) {
+    usize path_size = strfsize(file_format, BACKLIGHT_PATH, card, files[path_index]);
+    char *path = malloc(path_size + 1);
 
-  char **const paths = alloca(countof(files) * sizeof(*paths));
-
-  if (paths == NULL) {
-    goto error;
-  }
-
-  for (size_t i = 0; i < countof(files); i += 1) {
-    size_t size = countof(BACKLIGHT_PATH) + card_length + 1 + strlen(files[i]) + 1;
-    char *buffer = malloc(size);
-
-    if (buffer == NULL) {
-      goto done;
+    if (path == NULL) {
+      goto error;
     }
 
-    snprintf(buffer, size, "%s/%s/%s", BACKLIGHT_PATH, card, files[i]);
+    snprintf(path, path_size + 1, file_format, BACKLIGHT_PATH, card, files[path_index]);
 
-    paths[i] = buffer;
+    paths[path_index] = path;
   }
 
-  info->brightness_file_path = paths[0];
-  info->max_brightness_file_path = paths[1];
-  info->brightness = 0;
+  private->brightness_file_path = paths[0];
+  private->max_brightness_file_path = paths[1];
+  private->brightness = 0;
 
-done:
-  return info;
+  return private;
 
 error:
-  info_free(info);
+  private_destruct(private);
 
   return NULL;
 }
 
-static bool info_get_brightness(info_t *info) {
-  char *brightness_str = utils_fs_read_file(info->brightness_file_path, MAX_BRIGHTNESS_LENGTH);
-  char *max_brightness_str = utils_fs_read_file(info->max_brightness_file_path, MAX_BRIGHTNESS_LENGTH);
+static bool private_get_brightness(private_t *private) {
+  char *brightness_str = utils_fs_read_file(private->brightness_file_path, MAX_BRIGHTNESS_LENGTH);
+  char *max_brightness_str = utils_fs_read_file(private->max_brightness_file_path, MAX_BRIGHTNESS_LENGTH);
 
   if (brightness_str == NULL || max_brightness_str == NULL) {
     log_error("Failed to get brightness");
@@ -88,62 +79,18 @@ static bool info_get_brightness(info_t *info) {
   free(brightness_str);
   free(max_brightness_str);
 
-  info->brightness = round((double)brightness / max_brightness * 100);
+  private->brightness = (i8)round((double)brightness / max_brightness * 100);
 
   return true;
 }
 
-static bool handle_events(int inotifyfd, info_t *info) {
-  char buffer[sizeof(struct inotify_event)] = {0};
-  ssize_t length = 0, n = 0;
-  struct inotify_event const *event = NULL;
-
-  length = read(inotifyfd, buffer, sizeof(buffer));
-
-  if (length < 0 && errno == EINTR) {
-    return true;
-  }
-
-  if (length <= 0) {
-    return false;
-  }
-
-  while (n < length) {
-    event = (struct inotify_event const *)&buffer[n];
-
-    if (event->mask & (IN_CLOSE_WRITE | IN_CREATE)) {
-      if (!info_get_brightness(info)) {
-        return false;
-      }
-    } else if (event->mask & IN_DELETE) {
-      info->brightness = -1;
-    }
-
-    n += sizeof(struct inotify_event) + event->len;
-  }
-
-  return true;
-}
-
-static inline bool update(module_t *module, module_brightness_config_t const *config, info_t const *info) {
-  char brightness_buffer[4] = {0};
-  snprintf(brightness_buffer, sizeof(brightness_buffer), "%d", (uint8_t)info->brightness);
-
-  char const *formatters[][2] = {
-    {"%value%", brightness_buffer},
-    {NULL, NULL},
-  };
-
-  return module_update(module, config->format, formatters);
-}
-
-static void free_config(module_brightness_config_t *config) {
+static void config_free(module_brightness_config_t *config) {
   free(config->card);
   free(config->format);
   free(config);
 }
 
-static module_brightness_config_t *get_and_check_config(toml_table_t *table) {
+static module_brightness_config_t *config_get(toml_table_t *table) {
   module_brightness_config_t *config = calloc(1, sizeof(*config));
 
   toml_datum_t format = toml_string_in(table, "format");
@@ -166,52 +113,92 @@ static module_brightness_config_t *get_and_check_config(toml_table_t *table) {
   return config;
 
 error:
-  free_config(config);
+  config_free(config);
   return NULL;
+}
+
+static bool handle_events(int inotifyfd, private_t *private) {
+  char buffer[sizeof(struct inotify_event)] = {0};
+  isize length = 0, n = 0;
+  struct inotify_event const *event = NULL;
+
+  length = read(inotifyfd, buffer, sizeof(buffer));
+
+  if (length < 0 && errno == EINTR) {
+    return true;
+  }
+
+  if (length <= 0) {
+    return false;
+  }
+
+  while (n < length) {
+    event = (struct inotify_event const *)&buffer[n];
+
+    if (event->mask & (IN_CLOSE_WRITE | IN_CREATE)) {
+      if (!private_get_brightness(private)) {
+        return false;
+      }
+    } else if (event->mask & IN_DELETE) {
+      private->brightness = -1;
+    }
+
+    n += sizeof(struct inotify_event) + event->len;
+  }
+
+  return true;
+}
+
+static inline bool update_module(module_t *module, module_brightness_config_t const *config, private_t const *private) {
+  char brightness_buffer[4] = {0};
+  snprintf(brightness_buffer, sizeof(brightness_buffer), "%d", (u8) private->brightness);
+
+  char const *formatters[][2] = {
+    {"%value%", brightness_buffer},
+    {NULL, NULL},
+  };
+
+  return module_update(module, config->format, formatters);
 }
 
 int module_brightness_run(module_t *module) {
   int status = EXIT_FAILURE;
 
-  module_brightness_config_t *config = get_and_check_config(module->config);
+  module_brightness_config_t *config = config_get(module->config);
 
   if (config == NULL) {
     goto done;
   }
 
-  info_t info;
+  private_t private;
 
-  if (!info_init(&info, config->card)) {
-    log_error("Failed to initialize private info");
-
+  if (!private_construct(&private, config->card)) {
+    log_error("Failed to initialize private struct");
     goto free_config;
   }
 
-  update(module, config, &info);
+  update_module(module, config, &private);
 
-  if (!utils_fs_has_file(info.brightness_file_path) || !utils_fs_has_file(info.max_brightness_file_path)) {
-    fprintf(stderr, "Failed to get brightness files %s/%s\n", BACKLIGHT_PATH, config->card);
-
-    goto free_info;
+  if (!utils_fs_has_file(private.brightness_file_path) || !utils_fs_has_file(private.max_brightness_file_path)) {
+    log_error("Failed to get brightness files");
+    goto free_private;
   }
 
   int inotifyfd = inotify_init1(0);
 
   if (inotifyfd == -1) {
     log_error("Failed to initialize inotify");
-
-    goto free_info;
+    goto free_private;
   }
 
-  if (!info_get_brightness(&info)) {
+  if (!private_get_brightness(&private)) {
     return false;
   }
 
-  int wd = inotify_add_watch(inotifyfd, info.brightness_file_path, IN_CLOSE_WRITE | IN_DELETE_SELF | IN_CREATE);
+  int wd = inotify_add_watch(inotifyfd, private.brightness_file_path, IN_CLOSE_WRITE | IN_DELETE_SELF | IN_CREATE);
 
   if (wd == -1) {
     log_error("Failed to add inotify watch");
-
     goto close_inotify;
   }
 
@@ -221,9 +208,8 @@ int module_brightness_run(module_t *module) {
   };
 
   while (true) {
-    if (!update(module, config, &info)) {
+    if (!update_module(module, config, &private)) {
       log_error("Failed to update module");
-
       goto close_wd;
     }
 
@@ -233,7 +219,6 @@ int module_brightness_run(module_t *module) {
       }
 
       log_error("Failed to poll");
-
       goto close_wd;
     }
 
@@ -241,7 +226,8 @@ int module_brightness_run(module_t *module) {
       break;
     }
 
-    if (!handle_events(inotifyfd, &info)) {
+    if (!handle_events(inotifyfd, &private)) {
+      log_error("Failed to handle events");
       goto close_wd;
     }
   }
@@ -254,11 +240,11 @@ close_wd:
 close_inotify:
   close(inotifyfd);
 
-free_info:
-  info_free(&info);
+free_private:
+  private_destruct(&private);
 
 free_config:
-  free_config(config);
+  config_free(config);
 
 done:
   return status;

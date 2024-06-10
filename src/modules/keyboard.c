@@ -19,15 +19,16 @@ enum {
   INDICATOR_SCROLLLOCK = 4,
 };
 
-typedef struct {
+typedef struct private {
   char *name;
   char *symbol;
   bool is_capslock;
   bool is_numlock;
   bool is_scrolllock;
-} private_t;
+}
+private_t;
 
-typedef enum {
+typedef enum handle_events_status {
   NOEVENT,
   EVENT,
   ERROR,
@@ -40,8 +41,8 @@ static bool enable_xkb(xcb_connection_t *connection) {
   xcb_xkb_use_extension_cookie_t cookie;
   xcb_xkb_use_extension_reply_t *reply = NULL;
 
-  uint16_t major_version = XCB_XKB_MAJOR_VERSION;
-  uint16_t minor_version = XCB_XKB_MINOR_VERSION;
+  u16 major_version = XCB_XKB_MAJOR_VERSION;
+  u16 minor_version = XCB_XKB_MINOR_VERSION;
 
   cookie = xcb_xkb_use_extension(connection, major_version, minor_version);
   reply = xcb_xkb_use_extension_reply(connection, cookie, &error);
@@ -60,23 +61,22 @@ static bool enable_xkb(xcb_connection_t *connection) {
 }
 
 static bool register_events(xcb_connection_t *connection) {
-  uint16_t events = XCB_XKB_EVENT_TYPE_NEW_KEYBOARD_NOTIFY | XCB_XKB_EVENT_TYPE_STATE_NOTIFY |
-                    XCB_XKB_EVENT_TYPE_INDICATOR_STATE_NOTIFY;
+  u16 events = XCB_XKB_EVENT_TYPE_NEW_KEYBOARD_NOTIFY | XCB_XKB_EVENT_TYPE_STATE_NOTIFY |
+               XCB_XKB_EVENT_TYPE_INDICATOR_STATE_NOTIFY;
 
   xcb_void_cookie_t cookie =
     xcb_xkb_select_events_checked(connection, XCB_XKB_ID_USE_CORE_KBD, events, 0, events, 0, 0, NULL);
 
   if (xcb_request_check(connection, cookie) != NULL) {
     log_error("Failed for register xkb events");
-
     return false;
   }
 
   return true;
 }
 
-static uint8_t get_state_group(xcb_connection_t *connection, xcb_generic_error_t *error) {
-  uint8_t group = 0;
+static u8 get_state_group(xcb_connection_t *connection, xcb_generic_error_t *error) {
+  u8 group = 0;
 
   xcb_xkb_get_state_cookie_t cookie;
   xcb_xkb_get_state_reply_t *reply;
@@ -93,8 +93,8 @@ static uint8_t get_state_group(xcb_connection_t *connection, xcb_generic_error_t
   return group;
 }
 
-static uint32_t get_indicator_state(xcb_connection_t *connection, xcb_generic_error_t *error) {
-  uint8_t state = 0;
+static u32 get_indicator_state(xcb_connection_t *connection, xcb_generic_error_t *error) {
+  u8 state = 0;
 
   xcb_xkb_get_indicator_state_cookie_t cookie;
   xcb_xkb_get_indicator_state_reply_t *reply;
@@ -132,7 +132,6 @@ static char *get_xcb_atom(xcb_connection_t *connection, xcb_atom_t atom) {
 
   if (buffer == NULL) {
     log_error("Failed to allocate buffer for atom value");
-
     goto done;
   }
 
@@ -145,13 +144,13 @@ done:
   return buffer;
 }
 
-static inline void get_private_indicators(private_t *info, uint32_t state) {
-  info->is_capslock = (state & INDICATOR_CAPSLOCK) != 0;
-  info->is_numlock = (state & INDICATOR_NUMLOCK) != 0;
-  info->is_scrolllock = (state & INDICATOR_SCROLLLOCK) != 0;
+static inline void get_private_indicators(private_t *private, u32 state) {
+  private->is_capslock = (state & INDICATOR_CAPSLOCK) != 0;
+  private->is_numlock = (state & INDICATOR_NUMLOCK) != 0;
+  private->is_scrolllock = (state & INDICATOR_SCROLLLOCK) != 0;
 }
 
-static bool get_private_layout(xcb_connection_t *connection, uint8_t group, private_t *info) {
+static bool get_private_layout(xcb_connection_t *connection, u8 group, private_t *private) {
   bool status = false;
 
   xcb_generic_error_t *error = NULL;
@@ -161,14 +160,13 @@ static bool get_private_layout(xcb_connection_t *connection, uint8_t group, priv
   void *names_list_buffer = NULL;
 
   xcb_xkb_device_spec_t device_spec = XCB_XKB_ID_USE_CORE_KBD;
-  uint32_t names_cookie_which = XCB_XKB_NAME_DETAIL_SYMBOLS | XCB_XKB_NAME_DETAIL_GROUP_NAMES;
+  u32 names_cookie_which = XCB_XKB_NAME_DETAIL_SYMBOLS | XCB_XKB_NAME_DETAIL_GROUP_NAMES;
 
   names_cookie = xcb_xkb_get_names(connection, device_spec, names_cookie_which);
   names_reply = xcb_xkb_get_names_reply(connection, names_cookie, &error);
 
   if (error != NULL) {
-    log_error("Failed to get keyboard names(info)");
-
+    log_error("Failed to get keyboard names");
     goto done;
   }
 
@@ -187,7 +185,7 @@ static bool get_private_layout(xcb_connection_t *connection, uint8_t group, priv
     &names_list);
   // clang-format on
 
-  info->name = get_xcb_atom(connection, names_list.groups[group]);
+  private->name = get_xcb_atom(connection, names_list.groups[group]);
 
   {
     char const *delimeter = "+";
@@ -201,19 +199,18 @@ static bool get_private_layout(xcb_connection_t *connection, uint8_t group, priv
       symbol_tok = strtok_r(NULL, delimeter, &symbol_tok_save);
     }
 
-    size_t const symbol_size = 2;
+    usize const symbol_size = 2;
     char *symbol = malloc(symbol_size + 1);
 
     if (symbol == NULL) {
       log_error("Failed to allocate keyboard symbols (e.q \"us\")");
-
       goto done;
     }
 
     memcpy(symbol, symbol_tok, symbol_size);
     symbol[symbol_size] = '\0';
 
-    info->symbol = symbol;
+    private->symbol = symbol;
 
     free(symbols);
   }
@@ -226,35 +223,32 @@ done:
   return status;
 }
 
-static inline void free_private_fields(private_t *private) {
+static inline void private_destruct(private_t *private) {
   free(private->symbol);
   free(private->name);
 }
 
-static bool get_private(xcb_connection_t *connection, private_t *private) {
+static bool private_construct(xcb_connection_t *connection, private_t *private) {
   xcb_generic_error_t *error = NULL;
 
-  uint8_t state_group = get_state_group(connection, error);
+  u8 state_group = get_state_group(connection, error);
 
   if (error != NULL) {
     log_error("Failed to get current keyboard layout group");
-
     return false;
   }
 
-  free_private_fields(private);
+  private_destruct(private);
 
   if (!get_private_layout(connection, state_group, private)) {
     log_error("Failed to get keyboard layout");
-
     return false;
   }
 
-  uint32_t indicator_state = get_indicator_state(connection, error);
+  u32 indicator_state = get_indicator_state(connection, error);
 
   if (error != NULL) {
     log_error("Failed to get keyboard indicators");
-
     return false;
   }
 
@@ -263,12 +257,12 @@ static bool get_private(xcb_connection_t *connection, private_t *private) {
   return true;
 }
 
-static void free_config(module_keyboard_config_t *config) {
+static void config_free(module_keyboard_config_t *config) {
   free(config->format);
   free(config);
 }
 
-static module_keyboard_config_t *get_and_check_config(toml_table_t *table) {
+static module_keyboard_config_t *config_get(toml_table_t *table) {
   module_keyboard_config_t *config = calloc(1, sizeof(*config));
 
   toml_datum_t format = toml_string_in(table, "format");
@@ -283,33 +277,19 @@ static module_keyboard_config_t *get_and_check_config(toml_table_t *table) {
   return config;
 
 error:
-  free_config(config);
+  config_free(config);
   return NULL;
 }
 
-static inline bool update(module_t *module, module_keyboard_config_t const *config, private_t const *info) {
-  char const *formatters[][2] = {
-    {"%caps%", !info->is_capslock ? "c" : "C"},
-    {"%num%", !info->is_numlock ? "n" : "N"},
-    {"%scroll%", !info->is_scrolllock ? "s" : "S"},
-    {"%symbol%", info->symbol},
-    {"%name%", info->name},
-    {NULL, NULL},
-  };
-
-  return module_update(module, config->format, formatters);
-}
-
-static handle_events_status_t handle_events(xcb_connection_t *connection, private_t *info) {
+static handle_events_status_t handle_events(xcb_connection_t *connection, private_t *private) {
   xcb_generic_event_t *xcb_event = NULL;
   handle_events_status_t status = NOEVENT;
 
   while ((xcb_event = xcb_poll_for_event(connection))) {
     switch (xcb_event->pad0) {
       case XCB_XKB_NEW_KEYBOARD_NOTIFY: {
-        if (!get_private(connection, info)) {
+        if (!private_construct(connection, private)) {
           log_error("Failed to get keyboard layout and indicators");
-
           goto error;
         }
 
@@ -327,7 +307,7 @@ static handle_events_status_t handle_events(xcb_connection_t *connection, privat
           break;
         }
 
-        get_private_indicators(info, event->state);
+        get_private_indicators(private, event->state);
 
         status = EVENT;
 
@@ -341,11 +321,10 @@ static handle_events_status_t handle_events(xcb_connection_t *connection, privat
           break;
         }
 
-        free_private_fields(info);
+        private_destruct(private);
 
-        if (!get_private_layout(connection, event->group, info)) {
+        if (!get_private_layout(connection, event->group, private)) {
           log_error("Failed to get keyboard layout");
-
           goto error;
         }
 
@@ -368,10 +347,23 @@ error:
   return ERROR;
 }
 
+static inline bool update(module_t *module, module_keyboard_config_t const *config, private_t const *private) {
+  char const *formatters[][2] = {
+    {"%caps%", !private->is_capslock ? "c" : "C"},
+    {"%num%", !private->is_numlock ? "n" : "N"},
+    {"%scroll%", !private->is_scrolllock ? "s" : "S"},
+    {"%symbol%", private->symbol},
+    {"%name%", private->name},
+    {NULL, NULL},
+  };
+
+  return module_update(module, config->format, formatters);
+}
+
 int module_keyboard_run(module_t *module) {
   int status = EXIT_FAILURE;
 
-  module_keyboard_config_t *config = get_and_check_config(module->config);
+  module_keyboard_config_t *config = config_get(module->config);
 
   if (config == NULL) {
     goto done;
@@ -381,7 +373,6 @@ int module_keyboard_run(module_t *module) {
 
   if (xcb_connection_has_error(connection)) {
     log_error("Failed connect to server");
-
     goto free_config;
   }
 
@@ -393,9 +384,9 @@ int module_keyboard_run(module_t *module) {
     goto free_connection;
   }
 
-  private_t info = {0};
+  private_t private = {0};
 
-  if (!get_private(connection, &info)) {
+  if (!private_construct(connection, &private)) {
     goto free_connection;
   }
 
@@ -405,10 +396,9 @@ int module_keyboard_run(module_t *module) {
   };
 
   while (true) {
-    if (!update(module, config, &info)) {
+    if (!update(module, config, &private)) {
       log_error("Failed to update keyboard module");
-
-      goto free_info;
+      goto free_private;
     }
 
   poll_start:
@@ -418,8 +408,7 @@ int module_keyboard_run(module_t *module) {
       }
 
       log_error("Failed to poll");
-
-      goto free_info;
+      goto free_private;
     }
 
     if (fds[0].revents & POLLIN) {
@@ -428,11 +417,10 @@ int module_keyboard_run(module_t *module) {
 
     if (fds[1].revents & POLLHUP) {
       log_error("x11 disconnected");
-
-      goto free_info;
+      goto free_private;
     }
 
-    handle_events_status_t events_status = handle_events(connection, &info);
+    handle_events_status_t events_status = handle_events(connection, &private);
 
     if (events_status == NOEVENT) {
       goto poll_start;
@@ -440,21 +428,20 @@ int module_keyboard_run(module_t *module) {
 
     if (events_status == ERROR) {
       log_error("Filed to handle events");
-
-      goto free_info;
+      goto free_private;
     }
   }
 
   status = EXIT_SUCCESS;
 
-free_info:
-  free_private_fields(&info);
+free_private:
+  private_destruct(&private);
 
 free_connection:
   xcb_disconnect(connection);
 
 free_config:
-  free_config(config);
+  config_free(config);
 
 done:
   return status;

@@ -31,21 +31,19 @@ static int module_thread(void *param) {
   thrd_exit(status);
 }
 
-/* updates WM_NAME in root window */
-static void update_wmname(xcb_connection_t *display, char const *const buffer, uint32_t length) {
-  xcb_setup_t const *const setup = xcb_get_setup(display);
+static void update_wmname(xcb_connection_t *connection, char const *buffer, u32 length) {
+  xcb_setup_t const *setup = xcb_get_setup(connection);
   xcb_window_t const root_window = xcb_setup_roots_iterator(setup).data->root;
 
-  xcb_change_property(display, XCB_PROP_MODE_REPLACE, root_window, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8, length,
+  xcb_change_property(connection, XCB_PROP_MODE_REPLACE, root_window, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8, length,
                       buffer);
-
-  xcb_flush(display);
+  xcb_flush(connection);
 }
 
-static size_t calculate_new_length(status_line_t const *status_line) {
-  size_t length = 0;
+static usize calculate_new_length(status_line_t const *status_line) {
+  usize length = 0;
 
-  for (size_t module_index = 0; module_index < status_line->modules_count; module_index++) {
+  for (usize module_index = 0; module_index < status_line->modules_count; module_index++) {
     module_t *module = &status_line->modules[module_index];
 
     if (module->buffer == NULL) {
@@ -58,12 +56,11 @@ static size_t calculate_new_length(status_line_t const *status_line) {
   return length;
 }
 
-bool status_line_construct(status_line_t *status_line, size_t modules_count) {
+bool status_line_construct(status_line_t *status_line, usize modules_count) {
   status_line->connection = xcb_connect(NULL, NULL);
 
   if (xcb_connection_has_error(status_line->connection)) {
     log_error("Failed connect to X server");
-
     goto error;
   }
 
@@ -71,7 +68,6 @@ bool status_line_construct(status_line_t *status_line, size_t modules_count) {
 
   if (status_line->abort_file_descriptor == -1) {
     log_error("Invalid file descriptor");
-
     goto error;
   }
 
@@ -80,7 +76,6 @@ bool status_line_construct(status_line_t *status_line, size_t modules_count) {
 
   if (status_line->modules == NULL) {
     log_error("Failed to allocate modules");
-
     goto error;
   }
 
@@ -93,82 +88,80 @@ error:
 }
 
 bool status_line_run(status_line_t *status_line, config_t const *config) {
-  int status = false;
-  thrd_t *threads = NULL;
+  bool status = false;
 
-  /* handle SIGINT signal */
-  struct sigaction act = {0};
-  act.sa_handler = signal_handler;
-  sigemptyset(&act.sa_mask);
+  { /* handle sigint */
+    struct sigaction act = {0};
+    act.sa_handler = signal_handler;
+    sigemptyset(&act.sa_mask);
 
-  if (sigaction(SIGINT, &act, NULL) == -1) {
-    log_error("Failed to setup signals");
-    goto cleanup;
+    if (sigaction(SIGINT, &act, NULL) == -1) {
+      log_error("Failed to setup signals");
+      goto done;
+    }
   }
 
-  threads = malloc(status_line->modules_count * sizeof(*threads));
+  thrd_t *thread_ids = malloc(status_line->modules_count * sizeof(*thread_ids));
 
-  if (threads == NULL) {
+  if (thread_ids == NULL) {
     log_error("Failed to allocate threads");
-    goto cleanup;
+    goto done;
   }
 
-  for (size_t module_index = 0; module_index < status_line->modules_count; module_index++) {
+  for (usize module_index = 0; module_index < status_line->modules_count; module_index++) {
     config_module_t const *const config_module = &config->modules[module_index];
 
     module_t *module = &status_line->modules[module_index];
 
     if (!module_construct(module, status_line, config_module->key, config_module->config)) {
       log_error("Failed to initialize module");
-      goto cleanup;
+      goto free_threads;
     }
 
-    if (thrd_create(&threads[module_index], module_thread, module) != thrd_success) {
+    if (thrd_create(&thread_ids[module_index], module_thread, module) != thrd_success) {
       log_error("Failed to create module thread");
-      goto cleanup;
+      goto free_threads;
     }
   }
 
-  /* poll for optimized SIGINT waiting */
-  struct pollfd poll_fds[] = {
+  struct pollfd poll_file_descriptors[] = {
     {.fd = status_line->abort_file_descriptor, .events = POLLIN},
   };
 
   while (!is_aborted) {
-    int poll_status = poll(poll_fds, countof(poll_fds), -1);
+    int poll_status = poll(poll_file_descriptors, countof(poll_file_descriptors), -1);
 
     if (poll_status < 0) {
       if (errno == EINTR) {
-        /* errno = EINTR; EINTR = SIGINT; is_aborted = true */
         continue;
       }
 
       log_error("poll()");
-      goto cleanup;
+      goto free_threads;
     }
 
     log_error("close file descriptor writed from module");
-
     break;
   }
 
   /* send a message to exit modules */
-  write(status_line->abort_file_descriptor, &(uint64_t){1}, sizeof(uint64_t));
+  write(status_line->abort_file_descriptor, &(u64){1}, sizeof(u64));
 
-  for (size_t module_index = 0; module_index < status_line->modules_count; module_index += 1) {
-    thrd_t thread = threads[module_index];
+  for (usize module_index = 0; module_index < status_line->modules_count; module_index += 1) {
+    thrd_t thread = thread_ids[module_index];
 
     if (thrd_join(thread, NULL) != thrd_success) {
       log_error("Failed to close module thread");
-      goto cleanup;
+      goto free_threads;
     }
   }
 
   status = true;
 
-cleanup:
-  free(threads);
+free_threads:
+  free(thread_ids);
 
+done:
   return status;
 }
 
@@ -182,7 +175,7 @@ void status_line_destruct(status_line_t *status_line) {
 
   /* free modules */
   if (status_line->modules != NULL) {
-    for (size_t module_index = 0; module_index < status_line->modules_count; module_index++) {
+    for (usize module_index = 0; module_index < status_line->modules_count; module_index++) {
       module_t *module = &status_line->modules[module_index];
 
       module_destruct(module);
@@ -197,21 +190,21 @@ void status_line_destruct(status_line_t *status_line) {
 }
 
 void status_line_update(status_line_t const *status_line) {
-  size_t const buffer_length = calculate_new_length(status_line);
+  usize const buffer_length = calculate_new_length(status_line);
   char *buffer = malloc((buffer_length + 1) * sizeof(*buffer));
 
   if (buffer == NULL) {
     return;
   }
 
-  for (size_t module_index = 0, length = 0; module_index < status_line->modules_count; module_index++) {
+  for (usize module_index = 0, length = 0; module_index < status_line->modules_count; module_index++) {
     module_t *module = &status_line->modules[module_index];
 
     if (module->buffer == NULL) {
       continue;
     }
 
-    size_t module_buffer_length = strlen(module->buffer);
+    usize module_buffer_length = strlen(module->buffer);
 
     mtx_lock(&module->lock);
     memcpy(buffer + length, module->buffer, module_buffer_length);

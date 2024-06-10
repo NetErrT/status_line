@@ -62,7 +62,7 @@ bool config_construct(config_t *config) {
   free(config_file_path);
 
   if (config_file == NULL) {
-    perror("Failed to open config file");
+    log_error("Failed to open config file");
     goto error;
   }
 
@@ -82,7 +82,7 @@ bool config_construct(config_t *config) {
     log_error("Failed to get modules");
   }
 
-  size_t modules_size = toml_array_nelem(modules);
+  u8 modules_size = toml_array_nelem(modules);
 
   u8 modules_count = 0;
 
@@ -104,7 +104,7 @@ bool config_construct(config_t *config) {
     modules_count += 1;
   }
 
-  config->modules = calloc(modules_count + 1, sizeof(*config->modules));
+  config->modules = calloc(modules_count, sizeof(*config->modules));
 
   if (config->modules == NULL) {
     log_error("Failed to allocate modules");
@@ -136,7 +136,7 @@ bool config_construct(config_t *config) {
     config->modules[module_index] = (config_module_t){.key = module_key.u.s, .config = module_config};
   }
 
-  config->modules[modules_count] = (config_module_t){0};
+  config->modules_count = modules_count;
 
   return true;
 
@@ -146,11 +146,11 @@ error:
 }
 
 void config_destruct(config_t *config) {
-  for (u8 module_index = 0;; module_index++) {
+  for (u8 module_index = 0; module_index < config->modules_count; module_index++) {
     config_module_t *module = &config->modules[module_index];
 
     if (module->key == NULL) {
-      break;
+      continue;
     }
 
     free(module->key);

@@ -3,6 +3,7 @@
 #include <stdbool.h>
 
 #include "toml.h"
+#include "typedefs.h"
 
 typedef struct config_module {
   char *key;
@@ -11,6 +12,7 @@ typedef struct config_module {
 
 typedef struct config {
   config_module_t *modules; /* array modules */
+  usize modules_count;
   toml_table_t *_private;
 } config_t;
 
