@@ -39,7 +39,7 @@ debug:: $(SUBMODULES)
 debug:: $(EXECUTABLE)
 
 .PHONY: check
-debug:: $(SUBMODULES)
+check:: $(SUBMODULES)
 check:: LDLIBS += -lcriterion
 check:: $(TEST_BINS)
 	$(foreach bin,$(TEST_BINS),$(shell ./$(bin)))
