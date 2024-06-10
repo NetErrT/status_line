@@ -1,6 +1,4 @@
-*.o
-*.so
-*.a
-*.so.*
 compile_commands.json
-.ccls_cache
+.cache
+tomlc99
+build
