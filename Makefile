@@ -15,9 +15,9 @@ TOMLC_FLAGS := -L${TOMLC_DIR}
 TOMLC_LIB := libtoml.so.1.0
 
 CFLAGS := -std=c99 -fPIE ${CFLAGS}
-CPPFLAGS := -Iinclude ${TOMLC_INCLUDES} -Wall -Wextra -Wpedantic -Wshadow -Wdouble-promotion -Wconversion \
-						-Wsign-conversion -Wstrict-prototypes -Wmissing-prototypes \
-						-D_XOPEN_SOURCE=700 -MMD ${CPPFLAGS}
+CPPFLAGS := -Iinclude ${TOMLC_INCLUDES} -Wall -Wextra -Wpedantic -Wshadow \
+						-Wdouble-promotion -Wconversion \
+						-Wsign-conversion -D_XOPEN_SOURCE=700 -MMD ${CPPFLAGS}
 LDLIBS := -lxcb -lxcb-xkb -lxcb-util -lasound -lm -l:${TOMLC_LIB}
 LDFLAGS := ${TOMLC_FLAGS} -Wl,-rpath,'$$ORIGIN'/../lib
 
