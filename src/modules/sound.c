@@ -49,7 +49,7 @@ static u8 convert_percentage(long value, long min, long max) {
   long range = max - min;
 
   if (range == 0) {
-    return min;
+    return (u8)min;
   }
 
   return (u8)rintf((float)value / (float)range * 100);
@@ -57,7 +57,7 @@ static u8 convert_percentage(long value, long min, long max) {
 
 static inline bool update(module_t *module, module_sound_config_t const *config, private_t const *private) {
   u8 volume = convert_percentage(private->volume, private->min, private->max);
-  usize volume_string_size = strfsize("%d", volume);
+  usize volume_string_size = (usize)strfsize("%d", volume);
   char *volume_string = alloca(volume_string_size + 1);
   snprintf(volume_string, volume_string_size + 1, "%d", volume);
 
@@ -80,7 +80,7 @@ static void free_config(module_sound_config_t *config) {
 static module_sound_config_t *get_and_check_config(toml_table_t *table) {
   module_sound_config_t *config = calloc(1, sizeof(*config));
 
-  toml_datum_t format = toml_string_in(table, "format");
+  toml_value_t format = toml_table_string(table, "format");
 
   if (!format.ok) {
     goto error;
@@ -88,7 +88,7 @@ static module_sound_config_t *get_and_check_config(toml_table_t *table) {
 
   config->format = format.u.s;
 
-  toml_datum_t device = toml_string_in(table, "device");
+  toml_value_t device = toml_table_string(table, "device");
 
   if (!device.ok) {
     goto error;
@@ -96,7 +96,7 @@ static module_sound_config_t *get_and_check_config(toml_table_t *table) {
 
   config->device = device.u.s;
 
-  toml_datum_t control = toml_string_in(table, "control");
+  toml_value_t control = toml_table_string(table, "control");
 
   if (!control.ok) {
     goto error;
@@ -155,7 +155,7 @@ int module_sound_run(module_t *module) {
   snd_mixer_selem_id_set_index(id, 0);
 
   int nfds = snd_mixer_poll_descriptors_count(mixer) + 1;
-  struct pollfd *pfds = malloc(nfds * sizeof(*pfds));
+  struct pollfd *pfds = malloc((unsigned long)nfds * sizeof(*pfds));
 
   if (pfds == NULL) {
     log_error("Failed to allocate poll descriptors");
@@ -165,7 +165,7 @@ int module_sound_run(module_t *module) {
   pfds[0].fd = module_get_abort_file_descriptor(module);
   pfds[0].events = POLLIN;
 
-  if (snd_mixer_poll_descriptors(mixer, &pfds[1], nfds - 1) < 0) {
+  if (snd_mixer_poll_descriptors(mixer, &pfds[1], (unsigned int)nfds - 1) < 0) {
     log_error("cannot get poll descriptors");
     goto free_pfds;
   }
@@ -183,7 +183,7 @@ int module_sound_run(module_t *module) {
       goto free_pfds;
     }
 
-    int poll_status = poll(pfds, nfds, -1);
+    int poll_status = poll(pfds, (nfds_t)nfds, -1);
 
     if (poll_status < 0) {
       if (errno == EINTR) {
@@ -200,7 +200,7 @@ int module_sound_run(module_t *module) {
 
     unsigned short revents;
 
-    if (snd_mixer_poll_descriptors_revents(mixer, &pfds[1], nfds - 1, &revents) < 0) {
+    if (snd_mixer_poll_descriptors_revents(mixer, &pfds[1], (unsigned int)nfds - 1, &revents) < 0) {
       log_error("cannot get poll descriptors events");
       goto free_pfds;
     }

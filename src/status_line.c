@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,12 +24,12 @@ static void signal_handler(int sig) {
   is_aborted = sig;
 }
 
-static int module_thread(void *param) {
+static void *module_thread(void *param) {
   module_t *const module = param;
 
   int status = module->run(module);
 
-  thrd_exit(status);
+  pthread_exit(&status);
 }
 
 static void update_wmname(xcb_connection_t *connection, char const *buffer, u32 length) {
@@ -40,20 +41,60 @@ static void update_wmname(xcb_connection_t *connection, char const *buffer, u32 
   xcb_flush(connection);
 }
 
-static usize calculate_new_length(status_line_t const *status_line) {
+static usize calculate_new_length(status_line_t *status_line) {
   usize length = 0;
+
+  pthread_mutex_lock(&status_line->lock);
 
   for (usize module_index = 0; module_index < status_line->modules_count; module_index++) {
     module_t *module = &status_line->modules[module_index];
 
+    pthread_mutex_lock(&module->lock);
+
     if (module->buffer == NULL) {
+      pthread_mutex_unlock(&module->lock);
       continue;
     }
 
     length += strlen(module->buffer);
+    pthread_mutex_unlock(&module->lock);
   }
 
+  pthread_mutex_unlock(&status_line->lock);
+
   return length;
+}
+
+static char *concatenate_buffers(status_line_t *status_line, usize buffer_length) {
+  char *buffer = malloc((buffer_length + 1) * sizeof(*buffer));
+
+  if (buffer == NULL) {
+    return NULL;
+  }
+
+  pthread_mutex_lock(&status_line->lock);
+
+  for (usize module_index = 0, length = 0; module_index < status_line->modules_count; module_index++) {
+    module_t *module = &status_line->modules[module_index];
+
+    pthread_mutex_lock(&module->lock);
+
+    if (module->buffer == NULL) {
+      pthread_mutex_unlock(&module->lock);
+      continue;
+    }
+
+    usize module_buffer_length = strlen(module->buffer);
+
+    memcpy(buffer + length, module->buffer, module_buffer_length);
+    pthread_mutex_unlock(&module->lock);
+
+    length += module_buffer_length;
+  }
+
+  pthread_mutex_unlock(&status_line->lock);
+
+  return buffer;
 }
 
 bool status_line_construct(status_line_t *status_line, usize modules_count) {
@@ -79,6 +120,11 @@ bool status_line_construct(status_line_t *status_line, usize modules_count) {
     goto error;
   }
 
+  if (pthread_mutex_init(&status_line->lock, NULL) != 0) {
+    log_error("Failed to create mutex");
+    goto error;
+  }
+
   return true;
 
 error:
@@ -101,7 +147,7 @@ bool status_line_run(status_line_t *status_line, config_t const *config) {
     }
   }
 
-  thrd_t *thread_ids = malloc(status_line->modules_count * sizeof(*thread_ids));
+  pthread_t *thread_ids = malloc(status_line->modules_count * sizeof(*thread_ids));
 
   if (thread_ids == NULL) {
     log_error("Failed to allocate threads");
@@ -118,7 +164,7 @@ bool status_line_run(status_line_t *status_line, config_t const *config) {
       goto free_threads;
     }
 
-    if (thrd_create(&thread_ids[module_index], module_thread, module) != thrd_success) {
+    if (pthread_create(&thread_ids[module_index], NULL, module_thread, module) != 0) {
       log_error("Failed to create module thread");
       goto free_threads;
     }
@@ -148,9 +194,9 @@ bool status_line_run(status_line_t *status_line, config_t const *config) {
   write(status_line->abort_file_descriptor, &(u64){1}, sizeof(u64));
 
   for (usize module_index = 0; module_index < status_line->modules_count; module_index += 1) {
-    thrd_t thread = thread_ids[module_index];
+    pthread_t thread = thread_ids[module_index];
 
-    if (thrd_join(thread, NULL) != thrd_success) {
+    if (pthread_join(thread, NULL) != 0) {
       log_error("Failed to close module thread");
       goto free_threads;
     }
@@ -187,30 +233,21 @@ void status_line_destruct(status_line_t *status_line) {
   if (status_line->abort_file_descriptor != -1) {
     close(status_line->abort_file_descriptor);
   }
+
+  pthread_mutex_destroy(&status_line->lock);
 }
 
-void status_line_update(status_line_t const *status_line) {
-  usize const buffer_length = calculate_new_length(status_line);
-  char *buffer = malloc((buffer_length + 1) * sizeof(*buffer));
+void status_line_update(status_line_t *status_line) {
+  u32 const buffer_length = (u32)calculate_new_length(status_line);
 
-  if (buffer == NULL) {
+  if (buffer_length == 0) {
     return;
   }
 
-  for (usize module_index = 0, length = 0; module_index < status_line->modules_count; module_index++) {
-    module_t *module = &status_line->modules[module_index];
+  char *buffer = concatenate_buffers(status_line, buffer_length);
 
-    if (module->buffer == NULL) {
-      continue;
-    }
-
-    usize module_buffer_length = strlen(module->buffer);
-
-    mtx_lock(&module->lock);
-    memcpy(buffer + length, module->buffer, module_buffer_length);
-    mtx_unlock(&module->lock);
-
-    length += module_buffer_length;
+  if (buffer == NULL) {
+    return;
   }
 
   update_wmname(status_line->connection, buffer, buffer_length);

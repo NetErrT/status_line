@@ -24,7 +24,7 @@
 typedef struct private {
   char *brightness_file_path;
   char *max_brightness_file_path;
-  u8 brightness;
+  i8 brightness;
 }
 private_t;
 
@@ -40,7 +40,7 @@ static bool private_construct(private_t *private, char const *card) {
   char *paths[countof(files)] = {0};
 
   for (usize path_index = 0; path_index < countof(paths); path_index += 1) {
-    usize path_size = strfsize(file_format, BACKLIGHT_PATH, card, files[path_index]);
+    usize path_size = (usize)strfsize(file_format, BACKLIGHT_PATH, card, files[path_index]);
     char *path = malloc(path_size + 1);
 
     if (path == NULL) {
@@ -79,7 +79,7 @@ static bool private_get_brightness(private_t *private) {
   free(brightness_str);
   free(max_brightness_str);
 
-  private->brightness = (i8)round((double)brightness / max_brightness * 100);
+  private->brightness = (i8)round((double)brightness / (double)max_brightness * 100);
 
   return true;
 }
@@ -93,14 +93,14 @@ static void config_free(module_brightness_config_t *config) {
 static module_brightness_config_t *config_get(toml_table_t *table) {
   module_brightness_config_t *config = calloc(1, sizeof(*config));
 
-  toml_datum_t format = toml_string_in(table, "format");
+  toml_value_t format = toml_table_string(table, "format");
 
   if (!format.ok) {
     log_error("Failed to get format");
     goto error;
   }
 
-  toml_datum_t card = toml_string_in(table, "card");
+  toml_value_t card = toml_table_string(table, "card");
 
   if (!card.ok) {
     log_error("Failed to get card");

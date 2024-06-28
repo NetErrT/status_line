@@ -1,70 +1,61 @@
-MAKEFLAGS += --no-print-directory
-
 CC ?= cc
-CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -D_XOPEN_SOURCE=700 $(CFLAGS)
-LDLIBS := -lxcb -lxcb-xkb -lxcb-util -lasound -lm
-LDFLAGS := -fpie
+RM := rm -f
+MKDIR := mkdir -p
 
-OUT_DIR := build
+BUILD_DIR := build
 
-EXECUTABLE := $(OUT_DIR)/status_line
-SUBMODULES := tomlc99
+BUILD_BINS_DIR := ${BUILD_DIR}/bin
+BUILD_OBJS_DIR := ${BUILD_DIR}/objs
+BUILD_DEPS_DIR := ${BUILD_OBJS_DIR}
+BUILD_LIBS_DIR := ${BUILD_DIR}/lib
 
-ifneq (,$(filter tomlc99,$(SUBMODULES)))
-LDLIBS += -l:libtoml.so.1.0
-LDFLAGS += -Ltomlc99 -Wl,-rpath=./tomlc99
-CFLAGS += -Itomlc99
-endif
+TOMLC_DIR := subprojects/toml-c
+TOMLC_INCLUDES := -I${TOMLC_DIR}
+TOMLC_FLAGS := -L${TOMLC_DIR}
+TOMLC_LIB := libtoml.so.1.0
 
-SRCS := $(shell find src -name *.c)
-OBJS := $(patsubst %.c,$(OUT_DIR)/%.o,$(SRCS))
-DEPS := $(patsubst %.o,%.d,$(OBJS))
+CFLAGS := -std=c99 -fPIE ${CFLAGS}
+CPPFLAGS := -Iinclude ${TOMLC_INCLUDES} -Wall -Wextra -Wpedantic -Wshadow -Wdouble-promotion -Wconversion \
+						-Wsign-conversion -Wstrict-prototypes -Wmissing-prototypes \
+						-D_XOPEN_SOURCE=700 -MMD ${CPPFLAGS}
+LDLIBS := -lxcb -lxcb-xkb -lxcb-util -lasound -lm -l:${TOMLC_LIB}
+LDFLAGS := ${TOMLC_FLAGS} -Wl,-rpath,'$$ORIGIN'/../lib
 
-TEST_SRCS := $(shell find tests -name *.c)
-TEST_OBJS := $(patsubst %.c,$(OUT_DIR)/%.o $(patsubst tests/%,src/%,$(OUT_DIR)/%.o),$(TEST_SRCS))
-TEST_DEPS := $(patsubst %.o,%.d,$(TEST_OBJS))
-TEST_BINS := $(patsubst %.c,$(OUT_DIR)/%.test,$(TEST_SRCS))
+SRC_DIR := src
+SRC_SRCS := $(shell find ${SRC_DIR} -name *.c)
+SRC_OBJS := $(patsubst %.c,${BUILD_OBJS_DIR}/%.o,${SRC_SRCS})
+SRC_DEPS := $(patsubst %.c,${BUILD_DEPS_DIR}/%.d,${SRC_SRCS})
+
+EXECUTABLE := ${BUILD_BINS_DIR}/status_line
 
 .PHONY: all
-all: release
+all: debug
 
-.PHONY: release
-release:: CFLAGS := -O2 -DNDEBUG $(CFLAGS)
-release:: $(SUBMODULES)
-release:: $(EXECUTABLE)
+.PHONY: debug release sanitize-address sanitize-thread
+debug: CFLAGS := -O0 -g ${CFLAGS}
+release: CFLAGS := -O2 -DNDEBUG ${CFLAGS}
+sanitize-address: CFLAGS := -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer ${CFLAGS}
+sanitize-thread: CFLAGS := -O1 -g -fsanitize=thread -fno-omit-frame-pointer ${CFLAGS}
+debug release sanitize-address sanitize-thread: ${EXECUTABLE}
 
-.PHONY: debug
-debug:: CFLAGS := -O0 -g $(CFLAGS)
-debug:: $(SUBMODULES)
-debug:: $(EXECUTABLE)
+${BUILD_LIBS_DIR}/${TOMLC_LIB}: ${TOMLC_DIR}/${TOMLC_LIB}
+	@${MKDIR} $(dir $@)
+	cp $< $@
 
-.PHONY: check
-check:: $(SUBMODULES)
-check:: LDLIBS += -lcriterion
-check:: $(TEST_BINS)
-	$(foreach bin,$^,$(shell ./$(bin)))
-
-$(OUT_DIR)/%.test: $(OUT_DIR)/%.o $(patsubst $(OUT_DIR)/tests/%.test,$(OUT_DIR)/src/%.o,$@)
-	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LDLIBS) $^ -o $@ 
+${TOMLC_DIR}/${TOMLC_LIB}:
+	${MAKE} -C ${TOMLC_DIR} CC=${CC} ${TOMLC_LIB}
 
 .PHONY: clean
 clean:
-	$(MAKE) -C $(SUBMODULES) clean
-	rm -f $(OBJS) $(DEPS) $(EXECUTABLE)
+	${RM} ${SRC_OBJS} ${SRC_DEPS} ${EXECUTABLE}
+	${MAKE} -C ${TOMLC_DIR} clean
 
-.PHONY: tomlc99
-tomlc99: tomlc99/libtoml.so.1.0
+${EXECUTABLE}: ${BUILD_LIBS_DIR}/${TOMLC_LIB} ${SRC_OBJS}
+	@${MKDIR} $(dir $@)
+	${CC} ${CFLAGS} ${CPPFLAGS} ${LDLIBS} ${LDFLAGS} -o $@ ${SRC_OBJS}
 
-tomlc99/libtoml.so.1.0:
-	$(MAKE) -C tomlc99
+${BUILD_OBJS_DIR}/%.o: %.c
+	@${MKDIR} $(dir $@)
+	${CC} ${CFLAGS} ${CPPFLAGS} -o $@ -c $<
 
-$(EXECUTABLE): $(OBJS)
-	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) $(LDLIBS) $(LDFLAGS) $(OBJS) -o $@
-
-$(OUT_DIR)/%.o: %.c
-	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -MMD -c $< -o $@
-
--include $(DEPS)
+sinclude ${SRC_DEPS}

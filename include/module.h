@@ -1,7 +1,7 @@
 #pragma once
 
+#include <pthread.h>
 #include <stdbool.h>
-#include <threads.h>
 
 #include "status_line.h"
 #include "toml.h"
@@ -13,11 +13,13 @@ typedef struct module {
   char *buffer;
   toml_table_t *config;
   module_run run;
-  mtx_t lock;
+  pthread_mutex_t lock;
 } module_t;
 
-bool module_construct(module_t *module, status_line_t *status_line, char const *key, toml_table_t *config);
+bool module_construct(module_t *module, status_line_t *status_line,
+                      char const *key, toml_table_t *config);
 void module_destruct(module_t *module);
-bool module_update(module_t *module, char const *format, char const *formatters[][2]);
+bool module_update(module_t *module, char const *format,
+                   char const *formatters[][2]);
 module_run module_get_run_function(char const *key);
 int module_get_abort_file_descriptor(module_t const *module);

@@ -94,7 +94,7 @@ static u8 get_state_group(xcb_connection_t *connection, xcb_generic_error_t *err
 }
 
 static u32 get_indicator_state(xcb_connection_t *connection, xcb_generic_error_t *error) {
-  u8 state = 0;
+  u32 state = 0;
 
   xcb_xkb_get_indicator_state_cookie_t cookie;
   xcb_xkb_get_indicator_state_reply_t *reply;
@@ -125,7 +125,7 @@ static char *get_xcb_atom(xcb_connection_t *connection, xcb_atom_t atom) {
     goto done;
   }
 
-  int name_length = xcb_get_atom_name_name_length(reply);
+  usize name_length = (usize)xcb_get_atom_name_name_length(reply);
   char *name = xcb_get_atom_name_name(reply);
 
   buffer = malloc(name_length + 1);
@@ -199,20 +199,22 @@ static bool get_private_layout(xcb_connection_t *connection, u8 group, private_t
       symbol_tok = strtok_r(NULL, delimeter, &symbol_tok_save);
     }
 
-    usize const symbol_size = 2;
-    char *symbol = malloc(symbol_size + 1);
+    if (symbol_tok != NULL) {
+      usize const symbol_size = 2;
+      char *symbol = malloc(symbol_size + 1);
 
-    if (symbol == NULL) {
-      log_error("Failed to allocate keyboard symbols (e.q \"us\")");
-      goto done;
+      if (symbol == NULL) {
+        log_error("Failed to allocate keyboard symbols (e.q \"us\")");
+        goto done;
+      }
+
+      memcpy(symbol, symbol_tok, symbol_size);
+      symbol[symbol_size] = '\0';
+
+      private->symbol = symbol;
+
+      free(symbols);
     }
-
-    memcpy(symbol, symbol_tok, symbol_size);
-    symbol[symbol_size] = '\0';
-
-    private->symbol = symbol;
-
-    free(symbols);
   }
 
   status = true;
@@ -265,7 +267,7 @@ static void config_free(module_keyboard_config_t *config) {
 static module_keyboard_config_t *config_get(toml_table_t *table) {
   module_keyboard_config_t *config = calloc(1, sizeof(*config));
 
-  toml_datum_t format = toml_string_in(table, "format");
+  toml_value_t format = toml_table_string(table, "format");
 
   if (!format.ok) {
     log_error("Failed to get format");

@@ -60,10 +60,10 @@ static bool replace_formatters(char *buffer, usize length, char const *formatter
 }
 
 bool module_update(module_t *module, char const *format, char const *formatters[][2]) {
+  pthread_mutex_lock(&module->lock);
+
   free(module->buffer);
   module->buffer = NULL;
-
-  mtx_lock(&module->lock);
 
   if (formatters) {
     usize length = calculate_new_length(format, formatters);
@@ -90,43 +90,62 @@ bool module_update(module_t *module, char const *format, char const *formatters[
     }
   }
 
-  mtx_unlock(&module->lock);
+  pthread_mutex_unlock(&module->lock);
 
   status_line_update(module->status_line);
 
   return true;
 
 error:
-  mtx_unlock(&module->lock);
 
   free(module->buffer);
   module->buffer = NULL;
+
+  pthread_mutex_unlock(&module->lock);
 
   return false;
 }
 
 bool module_construct(module_t *module, status_line_t *status_line, char const *key, toml_table_t *config) {
+  bool status = false;
+
+  if (module == NULL) {
+    goto done;
+  }
+
+  pthread_mutex_lock(&status_line->lock);
+
   module->status_line = status_line;
   module->config = config;
 
   module->run = module_get_run_function(key);
 
   if (module->run == NULL) {
-    return false;
+    goto unlock;
   }
 
   module->buffer = NULL;
 
-  if (mtx_init(&module->lock, mtx_plain) != thrd_success) {
-    return false;
+  if (pthread_mutex_init(&module->lock, NULL) != 0) {
+    goto unlock;
   }
 
-  return true;
+  status = true;
+
+unlock:
+  pthread_mutex_unlock(&status_line->lock);
+
+done:
+  return status;
 }
 
 void module_destruct(module_t *module) {
+  if (module == NULL) {
+    return;
+  }
+
   free(module->buffer);
-  mtx_destroy(&module->lock);
+  pthread_mutex_destroy(&module->lock);
 }
 
 module_run module_get_run_function(char const *key) {

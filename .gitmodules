@@ -1,3 +1,4 @@
-[submodule "tomlc99"]
-	path = tomlc99
-	url = https://github.com/cktan/tomlc99.git
+[submodule "subprojects/toml-c"]
+	path = subprojects/toml-c
+	url = https://github.com/arp242/toml-c
+	branch = master

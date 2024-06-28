@@ -31,7 +31,7 @@ static char *get_config_path(void) {
       continue;
     }
 
-    usize config_path_length = strfsize(format, environment, config_name);
+    usize config_path_length = (usize)strfsize(format, environment, config_name);
     char *config_path = malloc(config_path_length + 1);
 
     if (config_path == NULL) {
@@ -76,25 +76,24 @@ bool config_construct(config_t *config) {
 
   config->_private = config_root;
 
-  toml_array_t *modules = toml_array_in(config_root, "modules");
+  toml_array_t *modules = toml_table_array(config_root, "modules");
 
   if (modules == NULL) {
     log_error("Failed to get modules");
   }
 
-  u8 modules_size = toml_array_nelem(modules);
+  int modules_size = toml_array_len(modules);
+  usize modules_count = 0;
 
-  u8 modules_count = 0;
-
-  for (usize module_index = 0; module_index < modules_size; module_index++) {
-    toml_table_t *module = toml_table_at(modules, module_index);
+  for (int module_index = 0; module_index < modules_size; module_index++) {
+    toml_table_t *module = toml_array_table(modules, module_index);
 
     if (module == NULL) {
       log_error("Failed to get module");
       goto error;
     }
 
-    toml_table_t *module_config = toml_table_in(module, "config");
+    toml_table_t *module_config = toml_table_table(module, "config");
 
     if (module_config == NULL) {
       log_error("Module config is null");
@@ -112,21 +111,21 @@ bool config_construct(config_t *config) {
   }
 
   for (u8 module_index = 0; module_index < modules_count; module_index++) {
-    toml_table_t *module = toml_table_at(modules, module_index);
+    toml_table_t *module = toml_array_table(modules, module_index);
 
     if (module == NULL) {
       log_error("Failed to get module");
       goto error;
     }
 
-    toml_datum_t module_key = toml_string_in(module, "name");
+    toml_value_t module_key = toml_table_string(module, "name");
 
     if (!module_key.ok) {
       log_error("Failed to get module key");
       goto error;
     }
 
-    toml_table_t *module_config = toml_table_in(module, "config");
+    toml_table_t *module_config = toml_table_table(module, "config");
 
     if (module_config == NULL) {
       log_error("Module config is null");

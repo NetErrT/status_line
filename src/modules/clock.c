@@ -30,7 +30,7 @@ static module_clock_config_t *config_get(toml_table_t *table) {
     goto error;
   }
 
-  toml_datum_t format = toml_string_in(table, "format");
+  toml_value_t format = toml_table_string(table, "format");
 
   if (!format.ok) {
     log_error("Failed to get lock format");
@@ -39,7 +39,7 @@ static module_clock_config_t *config_get(toml_table_t *table) {
 
   config->format = format.u.s;
 
-  toml_datum_t interval = toml_int_in(table, "interval");
+  toml_value_t interval = toml_table_int(table, "interval");
 
   if (!interval.ok) {
     log_error("Failed to get lock interval");
@@ -51,7 +51,7 @@ static module_clock_config_t *config_get(toml_table_t *table) {
     goto error;
   }
 
-  config->interval = interval.u.i;
+  config->interval = (u16)interval.u.i;
 
   return config;
 

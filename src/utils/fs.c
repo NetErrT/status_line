@@ -24,7 +24,7 @@ inline char *utils_fs_read_file(char const *file_path, int n) {
     return NULL;
   }
 
-  char *buffer = calloc(n + 1, sizeof(*buffer));
+  char *buffer = calloc((unsigned long)n + 1, sizeof(*buffer));
 
   if (buffer == NULL) {
     return NULL;
