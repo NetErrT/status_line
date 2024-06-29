@@ -1,61 +1,66 @@
+## Global variables
 CC ?= cc
 RM := rm -f
 MKDIR := mkdir -p
 
+# Build directories
 BUILD_DIR := build
-
 BUILD_BINS_DIR := ${BUILD_DIR}/bin
 BUILD_OBJS_DIR := ${BUILD_DIR}/objs
 BUILD_DEPS_DIR := ${BUILD_OBJS_DIR}
-BUILD_LIBS_DIR := ${BUILD_DIR}/lib
 
-TOMLC_DIR := subprojects/toml-c
-TOMLC_INCLUDES := -I${TOMLC_DIR}
-TOMLC_FLAGS := -L${TOMLC_DIR}
-TOMLC_LIB := libtoml.so.1.0
-
+# C, C++, ld flags and libs
 CFLAGS := -std=c99 -fPIE ${CFLAGS}
-CPPFLAGS := -Iinclude ${TOMLC_INCLUDES} -Wall -Wextra -Wpedantic -Wshadow \
+CPPFLAGS := -Wall -Wextra -Wpedantic -Wshadow \
 						-Wdouble-promotion -Wconversion \
-						-Wsign-conversion -D_XOPEN_SOURCE=700 -MMD ${CPPFLAGS}
-LDLIBS := -lxcb -lxcb-xkb -lxcb-util -lasound -lm -l:${TOMLC_LIB}
-LDFLAGS := ${TOMLC_FLAGS} -Wl,-rpath,'$$ORIGIN'/../lib
+						-Wsign-conversion ${CPPFLAGS} -D_XOPEN_SOURCE=700 -Iinclude
+LDLIBS := -lxcb -lxcb-xkb -lxcb-util -lasound -lm
+LDFLAGS :=
 
-SRC_DIR := src
-SRC_SRCS := $(shell find ${SRC_DIR} -name *.c)
-SRC_OBJS := $(patsubst %.c,${BUILD_OBJS_DIR}/%.o,${SRC_SRCS})
-SRC_DEPS := $(patsubst %.c,${BUILD_DEPS_DIR}/%.d,${SRC_SRCS})
-
+## Main
 EXECUTABLE := ${BUILD_BINS_DIR}/status_line
 
+# TOMLC
+TOMLC_DIR := subprojects/toml-c
+TOMLC_STATIC_LIB := libtoml.a
+
+CPPFLAGS += -I${TOMLC_DIR}
+
+${TOMLC_DIR}/${TOMLC_STATIC_LIB}:
+	${MAKE} -C ${TOMLC_DIR} CC=${CC} ${TOMLC_STATIC_LIB}
+
+# Object and dependency files
+${BUILD_OBJS_DIR}/%.o: %.c
+	@${MKDIR} $(dir $@)
+	${CC} ${CFLAGS} ${CPPFLAGS} -MMD -MF $(patsubst ${BUILD_OBJS_DIR}/%.o, ${BUILD_DEPS_DIR}/%.d, $@) -o $@ -c $<
+
+# Executable
+SRC_DIR := src
+SRC_SRCS := $(shell find ${SRC_DIR} -name *.c)
+SRC_OBJS := $(patsubst %.c, ${BUILD_OBJS_DIR}/%.o, ${SRC_SRCS})
+SRC_DEPS := $(patsubst %.c, ${BUILD_DEPS_DIR}/%.d, ${SRC_SRCS})
+
+-include ${SRC_DEPS}
+
+${EXECUTABLE}: ${TOMLC_DIR}/${TOMLC_STATIC_LIB} ${SRC_OBJS}
+	@${MKDIR} $(dir $@)
+	${CC} ${CFLAGS} ${CPPFLAGS} ${LDLIBS} ${LDFLAGS} -o $@ ${SRC_OBJS} ${TOMLC_DIR}/${TOMLC_STATIC_LIB}
+
+# Build types
 .PHONY: all
 all: debug
 
 .PHONY: debug release sanitize-address sanitize-thread
 debug: CFLAGS := -O0 -g ${CFLAGS}
 release: CFLAGS := -O2 -DNDEBUG ${CFLAGS}
-sanitize-address: CFLAGS := -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer ${CFLAGS}
-sanitize-thread: CFLAGS := -O1 -g -fsanitize=thread -fno-omit-frame-pointer ${CFLAGS}
+sanitize-address: CFLAGS := -O1 -g -fsanitize=address,undefined \
+									-fno-omit-frame-pointer ${CFLAGS}
+sanitize-thread: CFLAGS := -O1 -g -fsanitize=thread \
+									-fno-omit-frame-pointer ${CFLAGS}
 debug release sanitize-address sanitize-thread: ${EXECUTABLE}
 
-${BUILD_LIBS_DIR}/${TOMLC_LIB}: ${TOMLC_DIR}/${TOMLC_LIB}
-	@${MKDIR} $(dir $@)
-	cp $< $@
-
-${TOMLC_DIR}/${TOMLC_LIB}:
-	${MAKE} -C ${TOMLC_DIR} CC=${CC} ${TOMLC_LIB}
-
+# Cleanup
 .PHONY: clean
 clean:
 	${RM} ${SRC_OBJS} ${SRC_DEPS} ${EXECUTABLE}
 	${MAKE} -C ${TOMLC_DIR} clean
-
-${EXECUTABLE}: ${BUILD_LIBS_DIR}/${TOMLC_LIB} ${SRC_OBJS}
-	@${MKDIR} $(dir $@)
-	${CC} ${CFLAGS} ${CPPFLAGS} ${LDLIBS} ${LDFLAGS} -o $@ ${SRC_OBJS}
-
-${BUILD_OBJS_DIR}/%.o: %.c
-	@${MKDIR} $(dir $@)
-	${CC} ${CFLAGS} ${CPPFLAGS} -o $@ -c $<
-
-sinclude ${SRC_DEPS}
